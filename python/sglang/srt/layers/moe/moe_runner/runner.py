@@ -9,6 +9,10 @@ from sglang.srt.layers.moe.moe_runner.base import (
     MoeRunnerConfig,
     PermuteMethodPool,
 )
+from sglang.srt.layers.moe.observability import (
+    log_moe_runtime,
+    moe_runtime_logging_enabled,
+)
 from sglang.srt.layers.moe.moe_runner.deep_gemm import DeepGemmRunnerCore
 from sglang.srt.layers.moe.moe_runner.triton import TritonRunnerCore
 from sglang.srt.layers.moe.moe_runner.triton_kernels import TritonKernelsRunnerCore
@@ -96,6 +100,24 @@ class MoeRunner:
     def run(
         self, dispatch_output: DispatchOutput, quant_info: MoeQuantInfo, lora_info=None
     ) -> CombineInput:
+        if moe_runtime_logging_enabled():
+            topk_output = getattr(dispatch_output, "topk_output", None)
+            log_moe_runtime(
+                "moe_runner",
+                runner_config=self.config,
+                runner_backend=self.runner_backend.value,
+                a2a_backend=get_moe_a2a_backend().value,
+                fused_path=self.fused_func is not None and not self.lora_enabled,
+                dispatch_format=getattr(dispatch_output.format, "value", None),
+                hidden_states=getattr(dispatch_output, "hidden_states", None),
+                topk_ids=getattr(topk_output, "topk_ids", None),
+                topk_weights=getattr(topk_output, "topk_weights", None),
+                extra={
+                    "lora_enabled": self.lora_enabled,
+                    "quant_info": type(quant_info).__name__,
+                },
+            )
+
         if self.fused_func is not None and not self.lora_enabled:
             return self.fused_func(dispatch_output, quant_info, self.config)
 

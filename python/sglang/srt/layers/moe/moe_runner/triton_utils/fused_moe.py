@@ -13,6 +13,10 @@ import triton.language as tl
 
 from sglang.srt.environ import envs
 from sglang.srt.layers.moe.moe_runner import MoeRunnerConfig
+from sglang.srt.layers.moe.observability import (
+    log_moe_runtime,
+    moe_runtime_logging_enabled,
+)
 from sglang.srt.layers.moe.utils import get_moe_padding_size
 from sglang.srt.server_args import get_global_server_args
 from sglang.srt.utils import (
@@ -239,6 +243,34 @@ def fused_experts(
         moe_runner_config.num_experts is None
         or moe_runner_config.num_experts != moe_runner_config.num_local_experts
     )
+    if moe_runtime_logging_enabled():
+        log_moe_runtime(
+            "triton_fused_experts",
+            runner_config=moe_runner_config,
+            runner_backend="triton",
+            a2a_backend="none",
+            fused_path=True,
+            hidden_states=hidden_states,
+            topk_ids=topk_ids,
+            topk_weights=topk_weights,
+            w1=w1,
+            w2=w2,
+            quant={
+                "use_fp8_w8a8": use_fp8_w8a8,
+                "use_int8_w8a8": use_int8_w8a8,
+                "use_int8_w8a16": use_int8_w8a16,
+                "use_int4_w4a16": use_int4_w4a16,
+                "per_channel_quant": per_channel_quant,
+                "block_shape": block_shape,
+            },
+            extra={
+                "filter_expert": filter_expert,
+                "use_aiter": _use_aiter,
+                "is_hip": _is_hip,
+                "swiglu_clamp_fusion": envs.SGLANG_OPT_SWIGLU_CLAMP_FUSION.get(),
+            },
+        )
+
     if moe_runner_config.inplace:
         assert not moe_runner_config.no_combine, "no combine + inplace makes no sense"
         inplace_fused_experts(
@@ -472,6 +504,45 @@ def _fused_moe_kernel_sequence(
         and (not use_int8_w8a16)
         and (not use_int4_w4a16)
     )
+    if moe_runtime_logging_enabled():
+        log_moe_runtime(
+            "triton_kernel_sequence",
+            runner_backend="triton",
+            hidden_states=hidden_states,
+            topk_ids=topk_ids,
+            topk_weights=topk_weights,
+            w1=w1,
+            w2=w2,
+            quant={
+                "use_fp8_w8a8": use_fp8_w8a8,
+                "use_int8_w8a8": use_int8_w8a8,
+                "use_int8_w8a16": use_int8_w8a16,
+                "use_int4_w4a16": use_int4_w4a16,
+                "per_channel_quant": per_channel_quant,
+                "block_shape": block_shape,
+            },
+            kernel={
+                "config": config,
+                "down_config": down_config,
+                "down_moe_use_tma": down_moe_use_tma,
+                "padded_tokens": padded_tokens,
+                "total_tokens": total_tokens,
+                "compute_type": str(compute_type),
+                "use_fused_moe_sum_all_reduce": use_fused_moe_sum_all_reduce,
+            },
+            extra={
+                "activation": activation,
+                "is_gated": is_gated,
+                "no_combine": no_combine,
+                "inplace": inplace,
+                "apply_router_weight_on_input": apply_router_weight_on_input,
+                "filter_expert": filter_expert,
+                "use_aiter": _use_aiter,
+                "is_hip": _is_hip,
+                "swiglu_limit": swiglu_limit,
+                "swiglu_clamp_fusion": envs.SGLANG_OPT_SWIGLU_CLAMP_FUSION.get(),
+            },
+        )
 
     intermediate_cache1 = torch.empty(
         (total_tokens, N),

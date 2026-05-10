@@ -11,6 +11,10 @@ from sglang.srt.layers.moe.moe_runner.base import (
     MoeRunnerConfig,
     register_fused_func,
 )
+from sglang.srt.layers.moe.observability import (
+    log_moe_runtime,
+    moe_runtime_logging_enabled,
+)
 
 if TYPE_CHECKING:
     from sglang.srt.layers.moe.token_dispatcher.standard import (
@@ -72,6 +76,36 @@ def fused_experts_none_to_aiter(
         topk_weights = torch.ones_like(topk_weights)
 
     activation = runner_config.activation
+    if moe_runtime_logging_enabled():
+        log_moe_runtime(
+            "aiter_fused_moe",
+            runner_config=runner_config,
+            runner_backend="aiter",
+            a2a_backend="none",
+            fused_path=True,
+            dispatch_format=getattr(dispatch_output.format, "value", None),
+            hidden_states=hidden_states,
+            topk_ids=topk_ids,
+            topk_weights=topk_weights,
+            w1=quant_info.w13_weight,
+            w2=quant_info.w2_weight,
+            quant={
+                "quant_type": quant_info.quant_type.value,
+                "doweight_stage1": quant_info.doweight_stage1,
+                "hidden_pad": quant_info.hidden_pad,
+                "intermediate_pad": quant_info.intermediate_pad,
+                "has_w1_scale": quant_info.w13_scale is not None,
+                "has_w2_scale": quant_info.w2_scale is not None,
+                "has_a1_scale": quant_info.a13_scale is not None,
+                "has_a2_scale": quant_info.a2_scale is not None,
+                "has_expert_mask": quant_info.expert_mask is not None,
+            },
+            extra={
+                "activation": activation,
+                "apply_router_weight_on_input": runner_config.apply_router_weight_on_input,
+            },
+        )
+
     output = fused_moe(
         hidden_states=hidden_states,
         w1=quant_info.w13_weight,
